@@ -95,6 +95,7 @@ async def get_store_availability(
     has_cat: bool = False,
 ):
     """查询门店桌位可用性"""
+    get_current_user_id(request)  # 需要认证
     if not store_id.startswith("ST-"):
         raise HTTPException(status_code=404, detail="门店不存在")
 
