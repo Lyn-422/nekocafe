@@ -1,0 +1,91 @@
+# NekoCafé - production 环境配置
+# ⚠️ Secret 值通过 GitHub Secrets / Vault 注入，此处仅占位
+
+global:
+  environment: prod
+
+member:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  env:
+    APP_ENV: "prod"
+    LOG_LEVEL: "WARNING"
+    JWT_SECRET: "${JWT_SECRET}"
+
+reservation:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  env:
+    APP_ENV: "prod"
+    LOG_LEVEL: "WARNING"
+    JWT_SECRET: "${JWT_SECRET}"
+    MEMBER_SERVICE_URL: "http://member-service.nekocafe-prod:8080"
+
+mysql:
+  persistence:
+    size: 100Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+redis:
+  persistence:
+    size: 20Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: true
+  minAvailable: 2
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+  hosts:
+    - host: api.nekocafe.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: nekocafe-tls
+      hosts:
+        - api.nekocafe.com
+
+canary:
+  enabled: true
+  trafficWeight: 5
+  storeIds:
+    - "ST-BJ-001"
+    - "ST-BJ-002"
+  monitorDuration: 600
+
+otel:
+  enabled: true
+  endpoint: "http://otel-collector.nekocafe-prod:4317"
+  samplingRate: 0.1
+
+serviceMonitor:
+  enabled: true

@@ -1,0 +1,15 @@
+{{- if .Values.pdb.enabled }}
+{{- range $service := list "member" "reservation" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $service }}-pdb
+  namespace: {{ $.Release.Namespace }}
+spec:
+  minAvailable: {{ $.Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: {{ $service }}-service
+{{- end }}
+{{- end }}

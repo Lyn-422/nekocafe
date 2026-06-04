@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nekocafe-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: nekocafe
+data:
+  APP_NAME: "nekocafe"
+  APP_ENV: "{{ .Values.global.environment }}"
+  LOG_FORMAT: "json"
+  DB_HOST: "mysql-service"
+  DB_PORT: "3306"
+  DB_USER: "nekocafe"
+  REDIS_URL: "redis://redis-service:6379"
+  RABBITMQ_URL: "amqp://nekocafe:nekocafe123@rabbitmq-service:5672/"

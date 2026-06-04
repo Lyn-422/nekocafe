@@ -1,0 +1,228 @@
+version: "3.8"
+
+services:
+  # ============================================================
+  # MySQL 数据库
+  # ============================================================
+  mysql:
+    image: mysql:8.0
+    container_name: nekocafe-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: nekocafe_member
+      MYSQL_USER: nekocafe
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nekocafe123}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Redis 缓存
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: nekocafe-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # RabbitMQ 消息队列
+  # ============================================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: nekocafe-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-nekocafe}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-nekocafe123}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Member Service (会员服务)
+  # ============================================================
+  member:
+    build:
+      context: ./services/member
+      dockerfile: Dockerfile
+      target: development
+    container_name: nekocafe-member
+    restart: unless-stopped
+    environment:
+      APP_ENV: dev
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: nekocafe
+      DB_PASSWORD: ${MYSQL_PASSWORD:-nekocafe123}
+      DB_NAME: nekocafe_member
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://nekocafe:nekocafe123@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/member/src:/app
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Reservation Service (预约服务)
+  # ============================================================
+  reservation:
+    build:
+      context: ./services/reservation
+      dockerfile: Dockerfile
+      target: development
+    container_name: nekocafe-reservation
+    restart: unless-stopped
+    environment:
+      APP_ENV: dev
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: nekocafe
+      DB_PASSWORD: ${MYSQL_PASSWORD:-nekocafe123}
+      DB_NAME: nekocafe_reservation
+      REDIS_URL: redis://redis:6379/1
+      RABBITMQ_URL: amqp://nekocafe:nekocafe123@rabbitmq:5672/
+      MEMBER_SERVICE_URL: http://member:8080
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/reservation/src:/app
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # OpenTelemetry Collector
+  # ============================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: nekocafe-otel
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./infra/observability/opentelemetry/otel-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - tempo
+      - prometheus
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Tempo (链路追踪)
+  # ============================================================
+  tempo:
+    image: grafana/tempo:latest
+    container_name: nekocafe-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/observability/tempo/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Prometheus (指标)
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: nekocafe-prometheus
+    volumes:
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infra/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Loki (日志)
+  # ============================================================
+  loki:
+    image: grafana/loki:latest
+    container_name: nekocafe-loki
+    volumes:
+      - ./infra/observability/loki/loki-config.yaml:/etc/loki/config.yaml
+    command: ["-config.file=/etc/loki/config.yaml"]
+    ports:
+      - "3100:3100"
+    networks:
+      - nekocafe-net
+
+  # ============================================================
+  # Grafana (可视化)
+  # ============================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nekocafe-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./infra/observability/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./infra/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - nekocafe-net
+
+volumes:
+  mysql-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  nekocafe-net:
+    driver: bridge

@@ -1,0 +1,75 @@
+# Prometheus 告警规则 - NekoCafé
+
+groups:
+  - name: nekocafe-alerts
+    interval: 30s
+    rules:
+      # 告警1: 错误率过高
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          service: "{{ $labels.service }}"
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
+          runbook_url: "https://github.com/nekocafe/runbook.md#high-error-rate"
+
+      # 告警2: P95 延迟过高
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.4
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.service }}"
+        annotations:
+          summary: "High P95 latency on {{ $labels.service }}"
+          description: "P95 latency is {{ $value }}s (threshold: 0.4s = 400ms)"
+          runbook_url: "https://github.com/nekocafe/runbook.md#high-latency"
+
+      # 告警3: 服务宕机
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is DOWN"
+          description: "Service {{ $labels.job }} has been down for more than 1 minute"
+          runbook_url: "https://github.com/nekocafe/runbook.md#service-down"
+
+      # 告警4: CPU 使用率过高
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{container!=""}[5m]) / container_spec_cpu_quota > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.container }}"
+          description: "CPU usage is {{ $value | humanizePercentage }}"
+
+      # 告警5: 磁盘空间不足
+      - alert: LowDiskSpace
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space available is {{ $value | humanizePercentage }} of total"
+
+      # 告警6: Pod 频繁重启
+      - alert: PodCrashLooping
+        expr: |
+          rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times"

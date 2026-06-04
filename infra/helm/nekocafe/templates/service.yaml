@@ -1,0 +1,20 @@
+{{- range $service := list "member" "reservation" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $service }}-service
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: {{ $service }}-service
+    app.kubernetes.io/part-of: nekocafe
+spec:
+  type: {{ (index $.Values $service).service.type }}
+  ports:
+    - port: {{ (index $.Values $service).service.port }}
+      targetPort: {{ (index $.Values $service).service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ $service }}-service
+{{- end }}

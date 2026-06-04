@@ -1,0 +1,166 @@
+# CD Pipeline - NekoCafé
+# 金丝雀发布: 5% → 50% → 100%, 异常自动回滚
+
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ============================================================
+  # Deploy to Staging (自动)
+  # ============================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.14"
+
+      - name: Helm Lint
+        run: helm lint infra/helm/nekocafe
+
+      - name: Deploy to staging
+        run: |
+          helm upgrade --install nekocafe infra/helm/nekocafe \
+            --namespace nekocafe-staging \
+            --create-namespace \
+            --values infra/helm/nekocafe/values-staging.yaml \
+            --set image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 5m
+
+      - name: Smoke Test
+        run: |
+          # 等待服务就绪
+          sleep 10
+          curl -f http://staging.nekocafe.com/health || exit 1
+
+  # ============================================================
+  # Deploy to Production — Canary (需审批)
+  # ============================================================
+  deploy-prod-canary-5:
+    name: Canary 5%
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment:
+      name: production-canary
+      url: https://api.nekocafe.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.14"
+
+      - name: Deploy canary 5%
+        run: |
+          helm upgrade --install nekocafe-canary infra/helm/nekocafe \
+            --namespace nekocafe-prod \
+            --create-namespace \
+            --values infra/helm/nekocafe/values-prod.yaml \
+            --set canary.enabled=true \
+            --set canary.trafficWeight=5 \
+            --set image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 5m
+
+      - name: Monitor canary 5% (10min)
+        run: |
+          echo "Monitoring canary for 10 minutes..."
+          # 使用 Prometheus API 检查指标
+          for i in {1..20}; do
+            ERROR_RATE=$(curl -s "http://prometheus:9090/api/v1/query?query=rate(http_requests_total{status=~'5..'}[5m])" | python -c "import sys,json; print(json.load(sys.stdin)['data']['result'][0]['value'][1])" 2>/dev/null || echo "0")
+            if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+              echo "::error::Error rate exceeded 1% threshold! Rolling back..."
+              bash docs/rollback.sh reservation
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "Canary 5% stable"
+
+      - name: Approve 50%
+        run: echo "Canary 5% passed. Promoting to 50%..."
+
+  deploy-prod-canary-50:
+    name: Canary 50%
+    runs-on: ubuntu-latest
+    needs: deploy-prod-canary-5
+    environment:
+      name: production-canary-50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy canary 50%
+        run: |
+          helm upgrade nekocafe-canary infra/helm/nekocafe \
+            --namespace nekocafe-prod \
+            --values infra/helm/nekocafe/values-prod.yaml \
+            --set canary.trafficWeight=50 \
+            --wait --timeout 5m
+
+      - name: Monitor canary 50% (10min)
+        run: |
+          for i in {1..20}; do
+            P95=$(curl -s "http://prometheus:9090/api/v1/query?query=histogram_quantile(0.95,rate(http_request_duration_seconds_bucket[5m]))" | python -c "import sys,json; d=json.load(sys.stdin)['data']['result']; print(d[0]['value'][1] if d else '0')" 2>/dev/null || echo "0")
+            if (( $(echo "$P95 > 0.4" | bc -l) )); then
+              echo "::error::P95 latency exceeded 400ms! Rolling back..."
+              bash docs/rollback.sh reservation
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "Canary 50% stable"
+
+  deploy-prod-full:
+    name: Full Rollout 100%
+    runs-on: ubuntu-latest
+    needs: deploy-prod-canary-50
+    environment:
+      name: production
+      url: https://api.nekocafe.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Full rollout
+        run: |
+          helm upgrade nekocafe infra/helm/nekocafe \
+            --namespace nekocafe-prod \
+            --values infra/helm/nekocafe/values-prod.yaml \
+            --set canary.enabled=false \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 5m
+
+      - name: Verify deployment
+        run: |
+          curl -f https://api.nekocafe.com/health || exit 1
+          echo "Deployment successful!"
+
+  # ============================================================
+  # Auto Rollback (异常时触发)
+  # ============================================================
+  auto-rollback:
+    name: Auto Rollback
+    runs-on: ubuntu-latest
+    needs: [deploy-prod-canary-5, deploy-prod-canary-50]
+    if: failure()
+    steps:
+      - name: Rollback all services
+        run: |
+          echo "Rolling back due to canary failure..."
+          bash docs/rollback.sh member
+          bash docs/rollback.sh reservation

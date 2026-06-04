@@ -1,0 +1,51 @@
+# NekoCafé - dev 环境配置
+# 使用: helm install nekocafe . -f values-dev.yaml
+
+global:
+  environment: dev
+
+member:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    APP_ENV: "dev"
+    LOG_LEVEL: "DEBUG"
+
+reservation:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  env:
+    APP_ENV: "dev"
+    LOG_LEVEL: "DEBUG"
+
+mysql:
+  persistence:
+    size: 1Gi
+
+redis:
+  persistence:
+    size: 1Gi
+
+autoscaling:
+  enabled: false
+
+pdb:
+  enabled: false
+
+canary:
+  enabled: false
+
+otel:
+  enabled: false

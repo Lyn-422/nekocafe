@@ -1,0 +1,150 @@
+# NekoCafé Helm Chart - Default Values
+
+# 全局配置
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets: []
+  environment: dev
+
+# Member Service
+member:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: nekocafe/member-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  health:
+    livenessPath: /health
+    readinessPath: /health/ready
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  env:
+    APP_ENV: "dev"
+    JWT_SECRET: ""
+
+# Reservation Service
+reservation:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: nekocafe/reservation-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8081
+    targetPort: 8081
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  health:
+    livenessPath: /health
+    readinessPath: /health/ready
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  env:
+    APP_ENV: "dev"
+    JWT_SECRET: ""
+    MEMBER_SERVICE_URL: "http://member-service:8080"
+
+# MySQL
+mysql:
+  enabled: true
+  image:
+    repository: mysql
+    tag: "8.0"
+  auth:
+    rootPassword: "root123456"
+    database: "nekocafe"
+    username: "nekocafe"
+    password: "nekocafe123"
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# Redis
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# RabbitMQ
+rabbitmq:
+  enabled: true
+  image:
+    repository: rabbitmq
+    tag: "3-management-alpine"
+  auth:
+    username: "nekocafe"
+    password: "nekocafe123"
+
+# 金丝雀发布
+canary:
+  enabled: false
+  trafficWeight: 5
+  storeIds:
+    - "ST-BJ-001"
+    - "ST-BJ-002"
+  monitorDuration: 600  # 秒
+
+# HPA
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Ingress
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: api.nekocafe.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Pod Disruption Budget
+pdb:
+  enabled: false
+  minAvailable: 1
+
+# Service Monitor (Prometheus)
+serviceMonitor:
+  enabled: false
+
+# OpenTelemetry
+otel:
+  enabled: false
+  endpoint: "http://otel-collector:4317"
+  samplingRate: 0.1

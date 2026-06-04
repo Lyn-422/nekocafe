@@ -1,0 +1,93 @@
+{{- range $service := list "member" "reservation" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $service }}-service
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: {{ $service }}-service
+    app.kubernetes.io/name: {{ $service }}
+    app.kubernetes.io/part-of: nekocafe
+    app.kubernetes.io/version: {{ $.Chart.AppVersion }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  {{- if not (index $.Values $service).canary.enabled }}
+  replicas: {{ (index $.Values $service).replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: {{ $service }}-service
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ (index $.Values $service).service.port }}"
+        prometheus.io/path: "/metrics"
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        otel/inject: "{{ $.Values.otel.enabled }}"
+      labels:
+        app: {{ $service }}-service
+        version: {{ $.Chart.AppVersion }}
+        env: {{ $.Values.global.environment }}
+    spec:
+      serviceAccountName: nekocafe-{{ $service }}
+      {{- if $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml $.Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: {{ $service }}
+          image: "{{ $.Values.global.imageRegistry }}/{{ (index $.Values $service).image.repository }}:{{ (index $.Values $service).image.tag }}"
+          imagePullPolicy: {{ (index $.Values $service).image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ (index $.Values $service).service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $val := (index $.Values $service).env }}
+            - name: {{ $key }}
+              value: "{{ $val }}"
+            {{- end }}
+            {{- if $.Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ $.Values.otel.endpoint }}"
+            - name: OTEL_SAMPLING_RATE
+              value: "{{ $.Values.otel.samplingRate }}"
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: nekocafe-secrets
+            - configMapRef:
+                name: nekocafe-config
+          livenessProbe:
+            httpGet:
+              path: {{ (index $.Values $service).health.livenessPath }}
+              port: http
+            initialDelaySeconds: {{ (index $.Values $service).health.initialDelaySeconds }}
+            periodSeconds: {{ (index $.Values $service).health.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ (index $.Values $service).health.readinessPath }}
+              port: http
+            initialDelaySeconds: {{ (index $.Values $service).health.initialDelaySeconds }}
+            periodSeconds: {{ (index $.Values $service).health.periodSeconds }}
+          resources:
+            {{- toYaml (index $.Values $service).resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      terminationGracePeriodSeconds: 30
+{{- end }}
