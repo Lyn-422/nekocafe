@@ -12,8 +12,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  MEMBER_IMAGE: ghcr.io/${{ github.repository_owner }}/member-service
-  RESERVATION_IMAGE: ghcr.io/${{ github.repository_owner }}/reservation-service
 
 jobs:
   # ============================================================
@@ -217,6 +215,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Compute lowercase image names
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "MEMBER_IMAGE=ghcr.io/${OWNER}/member-service" >> $GITHUB_ENV
+          echo "RESERVATION_IMAGE=ghcr.io/${OWNER}/reservation-service" >> $GITHUB_ENV
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
