@@ -12,7 +12,7 @@ metadata:
     app.kubernetes.io/version: {{ $.Chart.AppVersion }}
     app.kubernetes.io/managed-by: {{ $.Release.Service }}
 spec:
-  {{- if not (index $.Values $service).canary.enabled }}
+  {{- if not $.Values.canary.enabled }}
   replicas: {{ (index $.Values $service).replicaCount }}
   {{- end }}
   strategy:
