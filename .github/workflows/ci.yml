@@ -150,7 +150,9 @@ jobs:
 
       - name: Trivy scan
         run: |
-          docker run --rm aquasec/trivy image \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy image \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             ${{ env.REGISTRY }}/${{ matrix.service }}-service:${{ github.sha }}
