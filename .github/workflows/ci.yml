@@ -12,8 +12,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  MEMBER_IMAGE: ghcr.io/nekocafe/member-service
-  RESERVATION_IMAGE: ghcr.io/nekocafe/reservation-service
+  MEMBER_IMAGE: ghcr.io/${{ github.repository_owner }}/member-service
+  RESERVATION_IMAGE: ghcr.io/${{ github.repository_owner }}/reservation-service
 
 jobs:
   # ============================================================
@@ -212,6 +212,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, integration-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      packages: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
