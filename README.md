@@ -1,5 +1,7 @@
 # NekoCafé DevOps - 猫咪主题餐饮预约平台
 
+[![CI Pipeline](https://github.com/Lyn-422/nekocafe/actions/workflows/ci.yml/badge.svg)](https://github.com/Lyn-422/nekocafe/actions/workflows/ci.yml)
+
 ## 项目简介
 
 NekoCafé 是一个猫咪主题餐饮预约平台。本项目是实验三 DevOps 流水线与容器化部署的 PoC 实现，包含两个核心微服务：

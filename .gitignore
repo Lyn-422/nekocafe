@@ -44,3 +44,6 @@ secrets/
 *.pem
 *.key
 credentials.json
+
+# Temp files
+*.zip
